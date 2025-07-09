@@ -1,24 +1,40 @@
+import os
 import requests
-from config import INTERNAL_API_BASE_URL, build_headers
+from utils.headers import build_payment_api_headers
 
 
 class TagsRepository:
-    def list(self, app_id):
-        url = f"{INTERNAL_API_BASE_URL}/tag/selection/list?group=location"
-        return requests.get(url, headers=build_headers(app_id)).json()
+    def list(self, application_id):
+        url = os.getenv("INTERNAL_PLATFORM_API_BASE_URL") + \
+            "/tag/selection/list?group=location"
+        headers = build_payment_api_headers(application_id)
+        response = requests.get(url, headers=headers)
+        return response.json()
 
-    def create(self, app_id, body):
-        url = f"{INTERNAL_API_BASE_URL}/tag/selection/create"
-        return requests.post(url, json=body, headers=build_headers(app_id)).json()
+    def create(self, application_id, body):
+        url = os.getenv("INTERNAL_PLATFORM_API_BASE_URL") + \
+            "/tag/selection/create"
+        headers = build_payment_api_headers(application_id)
+        response = requests.post(url, json=body, headers=headers)
+        return response.json()
 
-    def apply(self, app_id, body):
-        url = f"{INTERNAL_API_BASE_URL}/device/tags/merge"
-        return requests.post(url, json=body, headers=build_headers(app_id)).json()
+    def apply(self, application_id, body):
+        url = os.getenv("INTERNAL_PLATFORM_API_BASE_URL") + \
+            "/device/tags/merge"
+        headers = build_payment_api_headers(application_id)
+        response = requests.post(url, json=body, headers=headers)
+        return response.json()
 
-    def remove(self, app_id, body):
-        url = f"{INTERNAL_API_BASE_URL}/device/tags/delete"
-        return requests.post(url, json=body, headers=build_headers(app_id)).json()
+    def remove(self, application_id, body):
+        url = os.getenv("INTERNAL_PLATFORM_API_BASE_URL") + \
+            "/device/tags/delete"
+        headers = build_payment_api_headers(application_id)
+        response = requests.post(url, json=body, headers=headers)
+        return response.json()
 
-    def delete(self, app_id, body):
-        url = f"{INTERNAL_API_BASE_URL}/tag/selection/delete"
-        return requests.post(url, json=body, headers=build_headers(app_id)).json()
+    def delete(self, application_id, body):
+        url = os.getenv("INTERNAL_PLATFORM_API_BASE_URL") + \
+            "/tag/selection/delete"
+        headers = build_payment_api_headers(application_id)
+        response = requests.post(url, json=body, headers=headers)
+        return response.json()

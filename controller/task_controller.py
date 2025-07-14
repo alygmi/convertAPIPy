@@ -1,4 +1,5 @@
 # app/controllers/task_controller.py
+from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from typing import Dict, Any, List, Optional, Union
 import time
@@ -7,6 +8,7 @@ from base64 import b64decode
 import math
 
 from services.task_services import TaskService
+from utils.headers import get_application_id
 from utils.helper import (
     GetChannelId, GetTelegramToken, GetMessageID,
     WSResultToMap, PayloadEncryptedMap, PayloadMap,
@@ -22,7 +24,8 @@ class TaskController:
 
     async def task_business_point(self, ctx: Request):
         server_ts = int(time.time() * 1000)
-        application_id = ctx.headers.get("Vending-Application-Id")
+        application_id = get_application_id()
+
         channel_id_telegram = GetChannelId(application_id)
         token_telegram = GetTelegramToken(application_id)
 
@@ -214,7 +217,8 @@ class TaskController:
     async def task_complaint_set(self, ctx: Request):
         server_ts = int(time.time() * 1000)
         now = int(time.time() * 1000)
-        application_id = ctx.headers.get("Vending-Application-Id")
+        application_id = get_application_id()
+
         token_telegram = GetTelegramToken(application_id)
         channel_id = GetChannelId(application_id)
 
@@ -328,7 +332,8 @@ class TaskController:
     async def task_stock_set(self, ctx: Request):
         server_ts = int(time.time() * 1000)
         now = int(time.time() * 1000)
-        application_id = ctx.headers.get("Vending-Application-Id")
+        application_id = get_application_id()
+
         token_telegram = GetTelegramToken(application_id)
         channel_id = GetChannelId(application_id)
 
@@ -481,32 +486,23 @@ class TaskController:
     async def task_summary(self, ctx: Request):
         server_ts = int(time.time() * 1000)
 
-        # Using pytz or zoneinfo for timezones is more robust, but sticking to built-in for direct conversion.
-        # Python's time.localtime() or datetime.now().astimezone() can handle timezones.
-        # For "Asia/Jakarta", you might need to install 'zoneinfo' for Python < 3.9 or 'pytz'.
-        # For simplicity, using datetime.now() with manual offset if exact timezone is critical and zoneinfo/pytz not used.
-        # Assuming system local time is already WIB for now as per context.
-        # time.time() is UTC timestamp, so we need to convert to WIB if necessary for display.
-        # Example using simple datetime (without explicit timezone for formatting):
-        # now = datetime.fromtimestamp(server_ts / 1000).strftime("%Y-%m-%d %H:%M:%S")
-
-        # To accurately get "Asia/Jakarta" without external libs like pytz, for Python 3.9+:
+    # Konversi ke waktu lokal (WIB)
         try:
-            from zoneinfo import ZoneInfo  # type: ignore
+            from zoneinfo import ZoneInfo  # Python 3.9+
             jakarta_tz = ZoneInfo("Asia/Jakarta")
             now_dt = time.localtime(server_ts / 1000)
             dt_string = time.strftime("%Y-%m-%d %H:%M:%S", now_dt)
         except ImportError:
-            # Fallback if zoneinfo is not available (Python < 3.9) or not installed
-            print(
-                "Warning: 'zoneinfo' not found. Using local time or simple UTC if not configured.")
+            print("Warning: 'zoneinfo' not found. Using local time.")
             now_dt = time.localtime(server_ts / 1000)
             dt_string = time.strftime("%Y-%m-%d %H:%M:%S", now_dt)
 
-        application_id = ctx.headers.get("Vending-Application-Id")
+    # Ganti application_id jadi fix
+        application_id = get_application_id()
+
+    # Ambil data untuk telegram
         token_telegram = GetTelegramToken(application_id)
         channel_id = GetChannelId(application_id)
-        # message_id from helper is str
         message_id_str = GetMessageID(application_id)
 
         if not application_id:

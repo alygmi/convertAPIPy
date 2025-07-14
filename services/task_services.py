@@ -23,7 +23,7 @@ class TaskService:
             "Body": body,
             "Timeout": 90,
             "Headers": headers
-        })
+        })  # type: ignore
 
     async def close_task(self, application_id: str, body: Dict[str, Any]) -> WSResult:
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/task/close"
@@ -33,7 +33,7 @@ class TaskService:
             "Body": body,
             "Timeout": 90,
             "Headers": headers
-        })
+        })  # type: ignore
 
     async def get_task(self, application_id: str) -> WSResult:
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/task/list"

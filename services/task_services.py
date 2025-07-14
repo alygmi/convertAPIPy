@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from config.settings import settings
 from utils.web_services import WebService, WSResult  # Pastikan import yang benar
 from utils.helper import WSResultToMap  # Jika masih diperlukan
+from utils.headers import get_application_id
 
 
 class TaskService:
@@ -15,7 +16,8 @@ class TaskService:
             "Headers": {}
         })
 
-    async def create_task(self, application_id: str, body: Dict[str, Any]) -> WSResult:
+    async def create_task(self, body: Dict[str, Any]) -> WSResult:
+        application_id = get_application_id()
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/task/create"
         headers = self._build_internal_api_headers(application_id)
         return await WebService.JPOST({
@@ -25,7 +27,8 @@ class TaskService:
             "Headers": headers
         })  # type: ignore
 
-    async def close_task(self, application_id: str, body: Dict[str, Any]) -> WSResult:
+    async def close_task(self, body: Dict[str, Any]) -> WSResult:
+        application_id = get_application_id()
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/task/close"
         headers = self._build_internal_api_headers(application_id)
         return await WebService.JPOST({
@@ -35,7 +38,8 @@ class TaskService:
             "Headers": headers
         })  # type: ignore
 
-    async def get_task(self, application_id: str) -> WSResult:
+    async def get_task(self,) -> WSResult:
+        application_id = get_application_id()
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/task/list"
         headers = self._build_internal_api_headers(application_id)
         return await WebService.JGET({
@@ -54,7 +58,8 @@ class TaskService:
             "Url": url
         })
 
-    async def get_sensors(self, application_id: str) -> WSResult:
+    async def get_sensors(self) -> WSResult:
+        application_id = get_application_id()
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/device/sensor/list/data/latest"
         headers = self._build_internal_platform_api_headers(application_id)
         return await WebService.JGET({
@@ -62,7 +67,8 @@ class TaskService:
             "Headers": headers
         })
 
-    async def list_device(self, application_id: str) -> WSResult:
+    async def list_device(self) -> WSResult:
+        application_id = get_application_id
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/device/list"
         query_params = {
             "tags": "stock:true",

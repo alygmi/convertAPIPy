@@ -1,11 +1,47 @@
 from repository.planogram_repository import PlanogramRepository
+import base64
+import json
+
+repository = PlanogramRepository()
+
 
 class PlanogramService:
     def __init__(self):
         self.repo = PlanogramRepository()
 
-    def batch_config(self, app_id: str, body: dict):
-        return self.repo.batch_config(app_id, body)
+    def batch_config(self, vending_application_id: str, payload: dict):
+        encoded_data = payload.get("data")
+
+        if not encoded_data:
+            return {
+                "status_code": 400,
+                "body": {"message": "device_id atau config kosong"}
+            }
+
+        try:
+            decode_bytes = base64.b64decode(encoded_data)
+            decode_str = decode_bytes.decode('utf-8')
+            decode_payload = json.loads(decode_str)
+        except Exception as e:
+            return {
+                "status_code": 400,
+                "body": {"message": f"Gagal decode Base64: {str(e)}"}
+            }
+
+        device_id = decode_payload.get("device_id")
+        if not device_id:
+            return {
+                "status_code": 400,
+                "body": {"message": "device_id tidak ditemukan di payload"}
+            }
+
+        # lanjut repository
+        result = repository.batch_config(
+            vending_application_id, decode_payload)
+        return {
+            "status_code": 200,
+            "body": result
+        }
 
     def config(self, app_id: str, body: dict):
         return self.repo.config(app_id, body)

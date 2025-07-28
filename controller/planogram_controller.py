@@ -4,6 +4,7 @@ from services.planogram_services import PlanogramService
 router = APIRouter()
 service = PlanogramService()
 
+
 @router.post("/planogram/combo-porto-set")
 def combo_porto_set(
     vending_application_id: str = Header(...),
@@ -12,9 +13,11 @@ def combo_porto_set(
     result = service.batch_config(vending_application_id, payload)
 
     if result["status_code"] != 200:
-        raise HTTPException(status_code=500, detail="Failed to set combo porto")
+        raise HTTPException(
+            status_code=500, detail="Failed to set combo porto")
 
     return result["body"]
+
 
 @router.post("/planogram/mc-pro-set")
 def mc_pro_set(
@@ -28,6 +31,7 @@ def mc_pro_set(
 
     return result["body"]
 
+
 @router.post("/planogram/set")
 def planogram_set(
     vending_application_id: str = Header(...),
@@ -36,9 +40,11 @@ def planogram_set(
     result = service.config(vending_application_id, payload)
 
     if result["status_code"] != 200:
-        raise HTTPException(status_code=500, detail="Failed to config planogram")
+        raise HTTPException(
+            status_code=500, detail="Failed to config planogram")
 
     return result["body"]
+
 
 @router.get("/planogram/get")
 def planogram_get(
@@ -52,12 +58,13 @@ def planogram_get(
 
     return result["body"]
 
+
 @router.get("/planogram/get-ice")
 def planogram_get_ice(
     device_id: str,
     vending_application_id: str = Header(...)
 ):
-    result = service.get_ice(device_id, vending_application_id )
+    result = service.get_ice(device_id, vending_application_id)
 
     if result["status_code"] != 200:
         raise HTTPException(status_code=500, detail="Failed to get ice")

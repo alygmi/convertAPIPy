@@ -1,3 +1,4 @@
+from config.settings import settings
 import requests
 import os
 import httpx
@@ -5,13 +6,14 @@ import httpx
 
 class PlanogramRepository:
     def __init__(self):
-        self.base_url = os.getenv(
-            "INTERNAL_PLATFORM_API_BASE_URL", "https://iotera.internal")
+        self.base_url = settings.INTERNAL_PLATFORM_API_BASE_URL
+        self.token = settings.INTERNAL_PLATFORM_API_TOKEN
 
     def _headers(self, app_id):
         return {
-            "Vending-Application-Id": app_id,
-            "Content-Type": "application/json"
+            "Content-Type": f"application/json",
+            "Iotera-Internal-Api-Token": self.token,
+            "Iotera-Application-Id": app_id,
         }
 
     def _post(self, url, body, app_id):
@@ -39,24 +41,18 @@ class PlanogramRepository:
     def batch_command(self, app_id, body):
         return self._post(f"{self.base_url}/send/command/batch", body, app_id)
 
-    def batch_config(self, app_id, body):
+    async def batch_config(self, app_id, body):
         url = f"{self.base_url}/send/config/batch"
-        headers = {"vending-application-id": app_id}
-        print(f"[DEBUG] Sending to: {url}")
-        print(f"[DEBUG] Headers: {headers}")
-        print(f"[DEBUG] Body: {body}")
+        headers = self._headers(app_id)
 
-        try:
-            response = httpx.post(url, json=body, headers=headers, timeout=30)
+        print(url)
+        print(headers)
+        print(body)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=body, headers=headers)
             response.raise_for_status()
-            return {"status_code": response.status_code, "body": response.json()}
-        except httpx.HTTPStatusError as exc:
-            print(
-                f"[ERROR] HTTP Error: {exc.response.status_code} - {exc.response.text}")
-            return {"status_code": exc.response.status_code, "body": {"error": exc.response.text}}
-        except Exception as exc:
-            print(f"[ERROR] Unexpected error: {str(exc)}")
-            return {"status_code": 500, "body": {"error": "Unexpected error"}}
+            return response.json()
 
     def insert(self, app_id, body):
         return self._post(f"{self.base_url}/data/insert", body, app_id)

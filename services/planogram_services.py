@@ -9,7 +9,7 @@ class PlanogramService:
     def __init__(self):
         self.repo = PlanogramRepository()
 
-    def batch_config(self, vending_application_id: str, payload: dict):
+    async def batch_config(self, vending_application_id: str, payload: dict):
         encoded_data = payload.get("data")
 
         if not encoded_data:
@@ -36,7 +36,7 @@ class PlanogramService:
             }
 
         # lanjut repository
-        result = repository.batch_config(
+        result = await repository.batch_config(
             vending_application_id, decode_payload)
         return {
             "status_code": 200,

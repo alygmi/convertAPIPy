@@ -6,11 +6,11 @@ service = PlanogramService()
 
 
 @router.post("/planogram/combo-porto-set")
-def combo_porto_set(
+async def combo_porto_set(
     vending_application_id: str = Header(...),
     payload: dict = Body(...)
 ):
-    result = service.batch_config(vending_application_id, payload)
+    result = await service.batch_config(vending_application_id, payload)
 
     if result["status_code"] != 200:
         raise HTTPException(
@@ -20,11 +20,11 @@ def combo_porto_set(
 
 
 @router.post("/planogram/mc-pro-set")
-def mc_pro_set(
+async def mc_pro_set(
     vending_application_id: str = Header(...),
     payload: dict = Body(...)
 ):
-    result = service.batch_config(vending_application_id, payload)
+    result = await service.batch_config(vending_application_id, payload)
 
     if result["status_code"] != 200:
         raise HTTPException(status_code=500, detail="Failed to set mc pro")

@@ -1,4 +1,7 @@
+from typing import Any, Dict
 from config.settings import settings
+from utils.planogram import build_config_list
+
 import requests
 import os
 import httpx
@@ -41,18 +44,67 @@ class PlanogramRepository:
     def batch_command(self, app_id, body):
         return self._post(f"{self.base_url}/send/command/batch", body, app_id)
 
-    async def batch_config(self, app_id, body):
+    async def batch_config(self, app_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/send/config/batch"
         headers = self._headers(app_id)
 
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+
+                return {
+                    "status": "success",
+                    "status_code": response.status_code,
+                    "body": response.json(),
+                    "success": True
+                }
+
+        except httpx.HTTPStatusError as exc:
+            return {
+                "status": "error",
+                "status_code": exc.response.status_code,
+                "detail": str(exc),
+                "success": False
+            }
+        except httpx.RequestError as exc:
+            return {
+                "status": "error",
+                "status_code": 503,
+                "detail": f"Network error: {str(exc)}",
+                "success": False
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "status_code": 500,
+                "detail": f"Unexpected error: {str(exc)}",
+                "success": False
+            }
+
         print(url)
         print(headers)
-        print(body)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=body, headers=headers)
-            response.raise_for_status()
-            return response.json()
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=body, headers=headers)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            return {
+                "status": "error",
+                "status_code": exc.response.status_code,
+                "detail": str(exc)
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "detail": str(exc)
+            }
 
     def insert(self, app_id, body):
         return self._post(f"{self.base_url}/data/insert", body, app_id)

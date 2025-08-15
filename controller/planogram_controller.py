@@ -1,8 +1,12 @@
+from datetime import datetime
+import json
 import time
 from typing import Dict
 from fastapi import APIRouter, Header, Body, HTTPException, Request
+from fastapi.responses import JSONResponse
 from services.planogram_services import PlanogramService
-from utils.planogram import decode_base64_payload, build_config_list
+from utils.parser import rget
+from utils.planogram import decode_base64_payload, build_config_list, get_payload_encrypted_map
 from utils.response import ok_json, bad_request_json, br_failed
 
 router = APIRouter()
@@ -154,3 +158,160 @@ async def retail_set(
         return ok_json(result["data"])
     else:
         return bad_request_json(result["data"])
+
+
+@router.post("/planogram/playstationset")
+async def playstation_set(
+    request: Request,
+    vending_application_id: str = Header(..., alias="Vending-Application-Id")
+):
+    server_ts = int(time.time() * 1000)
+
+    try:
+        payload = await request.json()
+
+        result, status_code = await service.process_playstation_set(
+            vending_application_id,
+            payload,
+            server_ts
+        )
+
+        response_data = {
+            "status": "success" if status_code == 200 else "error",
+            "ts": server_ts,
+            **result
+        }
+
+        return JSONResponse(
+            content=response_data,
+            status_code=status_code
+        )
+
+    except json.JSONDecodeError:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "ts": server_ts,
+                "result": -2,
+                "message": "Invalid JSON payload"
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "ts": server_ts,
+                "result": -999,
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/api/water-dispenser/set")
+async def water_dispenser_set(
+    request: Request,
+    vending_application_id: str = Header(..., alias="Vending-Application-Id")
+):
+    server_ts = int(datetime.now().timestamp() * 1000)
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "server_ts": server_ts,
+                "result": -2,
+                "message": "Invalid payload"
+            }
+        )
+
+    errors = []
+
+    # Get all parameters using rget
+    device_id, errors = rget(payload, "device_id", errors)
+    wait_result = payload.get("wait_result", True)
+
+    water_duration, errors = rget(payload, "durationWater", errors)
+    water_price, errors = rget(payload, "priceWater", errors)
+    cup_duration, errors = rget(payload, "durationCup", errors)
+    cup_price, errors = rget(payload, "priceCup", errors)
+    cup_stock, errors = rget(payload, "stockCup", errors)
+
+    if errors:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "server_ts": server_ts,
+                "result": -3,
+                "message": "Invalid payload: " + ", ".join(errors)
+            }
+        )
+
+    config_list = []
+
+    if water_duration is not None:
+        config_list.append({
+            "sensor": "water",
+            "param": "duration",
+            "value": int(water_duration)
+        })
+
+    if water_price is not None:
+        config_list.append({
+            "sensor": "water",
+            "param": "price",
+            "value": int(water_price)
+        })
+
+    if cup_duration is not None:
+        config_list.append({
+            "sensor": "water_cup",
+            "param": "duration",
+            "value": int(cup_duration)
+        })
+
+    if cup_price is not None:
+        config_list.append({
+            "sensor": "water_cup",
+            "param": "price",
+            "value": int(cup_price)
+        })
+
+    if cup_stock is not None:
+        config_list.append({
+            "sensor": "water_cup",
+            "configtype": "cdata",
+            "param": "stock",
+            "value": int(cup_stock)
+        })
+
+    result = await service.process_water_dispenser(
+        application_id=vending_application_id,
+        config_data={
+            "device_id": device_id,
+            "payload": config_list,
+            "wait_result": wait_result
+        }
+    )
+
+    if result.get("result") == 0:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "success",
+                "data": result
+            }
+        )
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "data": result
+            }
+        )
+
+    return ok_json(result) if result.get("result") == 0 else bad_request_json(result)

@@ -1,6 +1,8 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from repository.planogram_repository import PlanogramRepository
+from utils.helper import WSResultToMap
 from utils.parser import rget, get
+from utils.planogram import build_config_list, build_config_list_playstation
 from utils.validation import is_string, is_number, is_bool
 import base64
 import json
@@ -145,3 +147,90 @@ class PlanogramService:
             "payload": config_list,
             "wait_result": wait_result
         }}
+
+    async def process_playstation_set(self, application_id: str, payload: dict, server_ts: int) -> Tuple[dict, int]:
+        try:
+            # Decode base64 payload
+            decoded_payload = json.loads(
+                base64.b64decode(payload["data"]).decode("utf-8"))
+
+            # Validasi payload sesuai implementasi Go
+            required_fields = ["device_id", "ids", "names", "prices"]
+            for field in required_fields:
+                if field not in decoded_payload:
+                    return {"result": -3, "error": f"Missing required field: {field}"}, 400
+
+            # Build config list dengan validasi ketat
+            config_list = []
+            for field, config in [
+                ("ids", "id"),
+                ("names", "name"),
+                ("prices", "price"),
+                ("remoteCommands", "remote_command"),
+                ("remoteBrands", "remote_brand"),
+                ("remoteIds", "remote_id")
+            ]:
+                if field in decoded_payload:
+                    if not isinstance(decoded_payload[field], dict):
+                        return {"result": -4, "error": f"Field {field} must be a dictionary"}, 400
+
+                    for sensor, value in decoded_payload[field].items():
+                        # Validasi khusus untuk prices dan remoteCommands
+                        if field == "prices" and not isinstance(value, dict):
+                            return {"result": -5, "error": "Price items must be dictionaries"}, 400
+                        if field == "remoteCommands" and not isinstance(value, dict):
+                            return {"result": -6, "error": "Remote commands must be dictionaries"}, 400
+
+                        config_list.append({
+                            "sensor": str(sensor),
+                            "param": config,
+                            "value": value
+                        })
+
+            # Kirim ke repository
+            api_payload = {
+                "device_id": decoded_payload["device_id"],
+                "payload": config_list,
+                "wait_result": decoded_payload.get("wait_result", True)
+            }
+
+            ws_result = await self.repo.batch_config_playstation(
+                application_id=application_id,
+                decoded_payload=api_payload
+            )
+
+            # Handle response code 10 khusus
+            if ws_result.get("body", {}).get("result") == 10:
+                return {
+                    "result": 10,
+                    "command_id": ws_result["body"].get("command_id"),
+                    "device_id": decoded_payload["device_id"],
+                    "error": "Invalid configuration (code 10)"
+                }, 400
+
+            if ws_result.get("status") != "success":
+                return ws_result, 400
+
+            return ws_result.get("body", {}), 200
+
+        except Exception as e:
+            return {"result": -999, "error": str(e)}, 500
+
+    async def process_water_dispenser(self, application_id: str, config_data: dict) -> dict:
+        """Async version of service method"""
+        if not application_id:
+            return {
+                "result": -1,
+                "message": "Application id not found",
+                "data": None
+            }
+
+        if not config_data.get("device_id"):
+            return {
+                "result": -2,
+                "message": "Device id not found",
+                "data": None
+            }
+
+        # Panggil repository dengan await
+        return await self.repo.batch_config_water_dispenser(application_id, config_data)

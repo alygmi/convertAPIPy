@@ -1,7 +1,7 @@
 # app/utils/helper.py
 import time
 import json
-from typing import Dict, Any, List, Optional, TypeVar, Tuple
+from typing import Dict, Any, List, Optional, TypeVar, Tuple, Union
 from base64 import b64decode
 from urllib.parse import urlencode
 
@@ -40,10 +40,13 @@ def GetMessageID(application_id: str) -> str:
     return _telegram_config.get(application_id, {}).get("message_id", "")
 
 
-def WSResultToMap(ws_result: WSResult) -> Dict[str, Any]:
-    # Mengonversi WSResult ke format map yang diharapkan di controller
-    # Dalam Go, wsresult.Body bisa langsung digunakan sebagai map.
-    # Di Python, kita sudah mengembalikan dict dari JSON.
+def WSResultToMap(ws_result: Union["WSResult", Dict[str, Any]]) -> Dict[str, Any]:
+    if isinstance(ws_result, dict):
+        return {
+            "code": ws_result.get("code"),
+            "body": ws_result.get("body") or ws_result.get("Body"),
+            "error": ws_result.get("error")
+        }
     return {
         "code": ws_result.code,
         "body": ws_result.body,

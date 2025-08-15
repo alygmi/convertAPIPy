@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict
 from config.settings import settings
 from utils.planogram import build_config_list
@@ -92,6 +93,10 @@ class PlanogramRepository:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(url, json=body, headers=headers)
+                print("Request URL:", url)
+                print("Payload:", payload)
+                print("Response status:", response.status_code)
+                print("Response body:", response.text)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as exc:
@@ -105,6 +110,55 @@ class PlanogramRepository:
                 "status": "error",
                 "detail": str(exc)
             }
+
+    async def batch_config_playstation(self, application_id: str, decoded_payload: dict) -> dict:
+        url = f"{self.base_url}/send/config/batch"
+        headers = {
+            "Vending-Application-Id": application_id,
+            "Content-Type": "application/json"
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=decoded_payload, headers=headers)
+                response.raise_for_status()
+                return {
+                    "status": "success",
+                    "body": response.json()
+                }
+        except httpx.HTTPStatusError as e:
+            try:
+                error_body = e.response.json()
+            except:
+                error_body = {"result": 10, "message": str(e)}
+
+            return {
+                "status": "error",
+                "status_code": e.response.status_code,
+                "body": error_body,
+                "error": str(e)
+            }
+
+    @staticmethod
+    async def batch_config_water_dispenser(application_id: str, config_data: dict) -> dict:
+        """Async version of repository method"""
+        # Implementasi async untuk berkomunikasi dengan database/device
+        # Contoh simulasi:
+        return {
+            "result": 0,
+            "message": "Configuration applied successfully",
+            "data": config_data
+        }
+
+        if not config_data.get("device_id"):
+            return {
+                "result": -2,
+                "message": "Device id not found",
+                "data": None
+            }
+
+        # Panggil repository dengan await
+        return await self.repo.batch_config(application_id, config_data)
 
     def insert(self, app_id, body):
         return self._post(f"{self.base_url}/data/insert", body, app_id)

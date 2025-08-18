@@ -15,3 +15,14 @@ def br_failed(ts, code, message):
         "code": code,
         "message": message
     })
+
+
+def assess_error(errors_list: list):
+    """
+    Mengembalikan error pertama yang ditemukan dalam list,
+    atau None kalau semua None.
+    """
+    for err in errors_list:
+        if err is not None:
+            return err
+    return None

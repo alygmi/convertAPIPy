@@ -234,3 +234,9 @@ class PlanogramService:
 
         # Panggil repository dengan await
         return await self.repo.batch_config_water_dispenser(application_id, config_data)
+
+    async def process_arcade_set(self, application_id: str, payload: dict):
+        """
+        Service untuk memanggil repository batch_config_repo.
+        """
+        return await repository.batch_config_repo(application_id, payload)

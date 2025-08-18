@@ -7,6 +7,8 @@ import requests
 import os
 import httpx
 
+from utils.web_services import WebService
+
 
 class PlanogramRepository:
     def __init__(self):
@@ -159,6 +161,20 @@ class PlanogramRepository:
 
         # Panggil repository dengan await
         return await self.repo.batch_config(application_id, config_data)
+
+    async def batch_config_repo(self, application_id: str, payload: dict):
+        url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/send/config/batch"
+        headers = {
+            "Vending-Application-Id": application_id,
+            # Tambahkan ini
+            "Authorization": f"Bearer {settings.INTERNAL_PLATFORM_API_TOKEN}",
+            "Content-Type": "application/json"  # Pastikan content-type ada
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
 
     def insert(self, app_id, body):
         return self._post(f"{self.base_url}/data/insert", body, app_id)

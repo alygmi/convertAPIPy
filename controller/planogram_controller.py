@@ -5,9 +5,11 @@ from typing import Dict
 from fastapi import APIRouter, Header, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 from services.planogram_services import PlanogramService
-from utils.parser import rget
+from utils.helper import PayloadMap, WSResultToMap
+from utils.parser import get, rget
 from utils.planogram import decode_base64_payload, build_config_list, get_payload_encrypted_map
-from utils.response import ok_json, bad_request_json, br_failed
+from utils.response import assess_error, ok_json, bad_request_json, br_failed
+from utils.validation import is_number
 
 router = APIRouter()
 service = PlanogramService()
@@ -315,3 +317,57 @@ async def water_dispenser_set(
         )
 
     return ok_json(result) if result.get("result") == 0 else bad_request_json(result)
+
+
+@router.post("/planogram/arcadeset")
+async def arcade_set(request: Request):
+    server_ts = int(datetime.now().timestamp() * 1000)
+
+    # Headers
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    # Payload body
+    try:
+        payload, err = await PayloadMap(request)
+        if err is not None:
+            return br_failed(server_ts, -2, "Invalid payload")
+    except Exception:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    errors = []
+
+    device_id, errors = rget(payload, "device_id", errors)
+    wait_result = get(payload, "wait_result", True)
+    pulse, errors = rget(payload, "pulse", errors)
+    price, errors = rget(payload, "price", errors)
+
+    try:
+        assess_error(errors)
+    except Exception:
+        return br_failed(server_ts, -3, "Invalid payload")
+
+    if not is_number(pulse):
+        return br_failed(server_ts, -3, "Invalid payload")
+
+    config_list = [
+        {"sensor": "arcade", "param": "pulse_factor", "value": pulse},
+        {"sensor": "arcade", "param": "price", "value": price}
+    ]
+
+    wsresult = await service.process_arcade_set(application_id, {
+        "device_id": device_id,
+        "payload": config_list,
+        "wait_result": wait_result
+    })
+
+    body = wsresult["Body"]
+    result_code = int(body["result"])
+    response = WSResultToMap(wsresult)
+    SUCCESS = 0
+
+    if result_code == SUCCESS:
+        return ok_json(response)
+
+    return bad_request_json(response)

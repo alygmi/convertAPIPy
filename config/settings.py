@@ -15,8 +15,10 @@ class Settings(BaseSettings):
     INTERNAL_PLATFORM_API_TOKEN: str
     SUPER_ADMIN_PLATFORM_API_URL: str
     SUPER_ADMIN_PLATFORM_API_TOKEN: str
+    IOTERA_INTERNAL_API_TOKEN: str
+    IOTERA_APPLICATION_ID: str
 
     DATABASE_URL: str
 
 
-settings = Settings()
+settings = Settings()  # type: ignore

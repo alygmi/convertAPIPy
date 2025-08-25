@@ -2,9 +2,9 @@ from datetime import datetime
 import json
 import time
 from typing import Dict
-from fastapi import APIRouter, Header, Body, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
-from services.planogram_services import PlanogramService
+from services.planogram_services import CoffeeService, PlanogramService
 from utils.helper import PayloadMap, WSResultToMap
 from utils.parser import get, rget
 from utils.planogram import decode_base64_payload, build_config_list, get_payload_encrypted_map
@@ -13,6 +13,7 @@ from utils.validation import is_number
 
 router = APIRouter()
 service = PlanogramService()
+coffee = CoffeeService()
 
 
 @router.post("/planogram/combo-porto-set")
@@ -341,7 +342,7 @@ async def arcade_set(request: Request):
     device_id, errors = rget(payload, "device_id", errors)
     wait_result = get(payload, "wait_result", True)
     pulse, errors = rget(payload, "pulse", errors)
-    price, errors = rget(payload, "price", errors)
+    price_data, errors = rget(payload, "price", errors)
 
     try:
         assess_error(errors)
@@ -352,22 +353,111 @@ async def arcade_set(request: Request):
         return br_failed(server_ts, -3, "Invalid payload")
 
     config_list = [
-        {"sensor": "arcade", "param": "pulse_factor", "value": pulse},
-        {"sensor": "arcade", "param": "price", "value": price}
+        {
+            "sensor": "arcade",
+            "param": "pulse_factor",
+            "value": pulse
+        },
+        {
+            "sensor": "arcade",
+            "param": "price",
+            "value": price_data
+        }
     ]
 
-    wsresult = await service.process_arcade_set(application_id, {
-        "device_id": device_id,
-        "payload": config_list,
-        "wait_result": wait_result
-    })
+    try:
+        wsresult = await service.process_arcade_set(application_id, {
+            "device_id": device_id,
+            "payload": config_list,
+            "wait_result": wait_result
+        })
 
-    body = wsresult["Body"]
-    result_code = int(body["result"])
-    response = WSResultToMap(wsresult)
-    SUCCESS = 0
+        # Handle response dari internal API
+        result_code = int(wsresult.get("result", -1))
+        command_id = wsresult.get("command_id", "")
 
-    if result_code == SUCCESS:
-        return ok_json(response)
+        # DEFINE RESULT CODES
+        SUCCESS = 0
+        DEVICE_OFFLINE = 10  # Device mati/offline
 
-    return bad_request_json(response)
+        response = {
+            "result": result_code,
+            "command_id": command_id,
+            "device_id": device_id
+        }
+
+        if result_code == SUCCESS:
+            response["message"] = "Command executed successfully"
+            return ok_json(response)
+
+        elif result_code == DEVICE_OFFLINE:
+            # BUKAN ERROR! Command berhasil dikirim, tapi device offline
+            response["message"] = "Command queued successfully but device is currently offline"
+            # Masih return 200 OK karena bukan error sistem
+            return ok_json(response)
+
+        else:
+            # Other error codes (real errors)
+            response["message"] = f"Operation failed with code {result_code}"
+            return bad_request_json(response)
+
+    except Exception as e:
+        return br_failed(server_ts, -5, f"Internal server error: {str(e)}")
+
+
+@router.post("/planogram/stock/history")
+async def stock_history(
+    request: Request,
+    vending_application_id: str = Header(..., alias="Vending-Application-Id")
+):
+    server_ts = int(time.time() * 1000)
+
+    if not vending_application_id:
+        return br_failed(server_ts, -1, "Application Id not found")
+
+    # parse payload
+    try:
+        payload = await request.json()
+
+    except Exception:
+        return br_failed(server_ts, -1, "Invalid Payload")
+
+    # service
+    ws_result = await service.stock_history_service(
+        payload=payload,
+        application_id=vending_application_id,
+        server_ts=server_ts
+    )
+
+    # print("ws Result:", ws_result)
+
+    # ws_result handler
+    if ws_result.code != 200:
+        return bad_request_json(ws_result.body)
+
+    return ok_json({"code": 1})
+
+
+@router.post("/planogram/coffee-franke-set")
+async def coffee_franke_set(
+    request: Request,
+    application_id: str = Header(None, alias="Vending-Application-Id"),
+):
+    server_ts = int(datetime.now().timestamp() * 1000)
+
+    if not application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    payload, err = await get_payload_encrypted_map(request)
+    if err:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    response = await coffee.coffee_franke_set(application_id, payload, server_ts)
+    if response.get("error"):
+        return br_failed(server_ts, response["code"], response["message"])
+
+    result_code = response["result"]
+    if result_code != 0:  # SUCCESS
+        return bad_request_json(response)
+
+    return ok_json(response)

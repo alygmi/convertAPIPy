@@ -6,7 +6,8 @@ from base64 import b64decode
 from urllib.parse import urlencode
 
 from utils.web_services import WSResult
-from config.settings import settings  # Import settings
+from config.settings import settings
+from utils.wsclient import WebSocketResult  # Import settings
 
 T = TypeVar('T')
 
@@ -40,17 +41,19 @@ def GetMessageID(application_id: str) -> str:
     return _telegram_config.get(application_id, {}).get("message_id", "")
 
 
-def WSResultToMap(ws_result: Union["WSResult", Dict[str, Any]]) -> Dict[str, Any]:
+def WSResultToMap(ws_result: Union["WebSocketResult", Dict[str, Any]]) -> Dict[str, Any]:
     if isinstance(ws_result, dict):
         return {
-            "code": ws_result.get("code"),
-            "body": ws_result.get("body") or ws_result.get("Body"),
-            "error": ws_result.get("error")
+            "result": ws_result.get("result") or ws_result.get("code"),
+            "body": ws_result.get("body") or ws_result.get("Body") or ws_result.get("data"),
+            "error": ws_result.get("error") or ws_result.get("message"),
         }
+
+    # kalau object WebSocketResult
     return {
-        "code": ws_result.code,
-        "body": ws_result.body,
-        "error": str(ws_result.error) if ws_result.error else None
+        "result": getattr(ws_result, "result", None),
+        "body": getattr(ws_result, "body", None),
+        "error": str(getattr(ws_result, "error", None)) if getattr(ws_result, "error", None) else None,
     }
 
 
@@ -104,6 +107,13 @@ def AddSuccessResponse(response: Dict[str, Any], server_ts: int, message: str) -
     response["result"] = 0  # Asumsi result 0 adalah SUCCESS
     return response
 
+
+def parse_coffee_sensors(configs: list):
+    # convert configs -> sensors sesuai logic dari Go
+    sensors = []
+    for cfg in configs:
+        sensors.append(cfg)  # placeholder, isi sesuai kebutuhan
+    return sensors
 # Dummy result codes
 
 

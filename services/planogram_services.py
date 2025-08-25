@@ -1,11 +1,16 @@
 from typing import Any, Dict, List, Tuple
+
+import httpx
 from repository.planogram_repository import PlanogramRepository
-from utils.helper import WSResultToMap
+from utils.helper import WSResultToMap, parse_coffee_sensors
 from utils.parser import rget, get
 from utils.planogram import build_config_list, build_config_list_playstation
+from utils.response import assess_error
 from utils.validation import is_string, is_number, is_bool
 import base64
 import json
+
+from utils.wsclient import WebSocketClient, WebSocketResult
 
 repository = PlanogramRepository()
 
@@ -239,4 +244,99 @@ class PlanogramService:
         """
         Service untuk memanggil repository batch_config_repo.
         """
-        return await repository.batch_config_repo(application_id, payload)
+        try:
+            return await repository.batch_config_repo(application_id, payload)
+        except Exception as e:
+            raise Exception(f"Service error: {str(e)}")
+
+    async def stock_history_service(self, payload: dict, application_id: str, server_ts: int):
+        errors = []
+
+        old_planogram = payload.get("latest planogram", {})
+        new_planogram = payload.get("newest_planogram", {})
+        email = payload.get("email", "")
+        device_id = payload.get("device_id", "")
+
+        item_list = []
+
+        for key, old_product in old_planogram.items():
+            if "p" in key:
+                continue
+
+            if not isinstance(old_product, dict):
+                continue
+
+            new_product = new_planogram.get(key)
+            if not isinstance(new_product, dict):
+                continue
+
+            old_stock = int(old_product.get("stock", 0))
+            new_stock = int(new_product.get("stock", 0))
+
+            if old_stock != new_stock:
+                value = {
+                    "start": old_stock,
+                    "end": new_stock,
+                    "difference": new_stock - old_stock,
+                    "source": "planogram",
+                    "type": "update_stock_planogram",
+                    "extras": {
+                        "ts": server_ts,
+                        "user": email
+                    }
+                }
+                item = {
+                    "sensor": key,
+                    "configtype": "data",
+                    "param": "stock_history",
+                    "value": value
+                }
+                item_list.append(item)
+
+        body = {
+            "device_id": device_id,
+            "payload": item_list
+        }
+
+        # send to repository
+        ws_result = await repository.send_insert(application_id, body)
+        return ws_result
+
+
+class CoffeeService:
+    def __init__(self):
+        self.ws_client = WebSocketClient()
+
+    async def coffee_franke_set(self, application_id: str, payload: dict, server_ts: int):
+        """
+        Kirim planogram ke mesin Coffee Franke via websocket.
+        Response dibungkus ke dict supaya aman dipakai .get()
+        """
+        # --- panggil websocket, ganti sesuai fungsi yg memang kamu pakai ---
+        raw_response = await send_ws(
+            application_id=application_id,
+            action="coffee.franke.set",
+            data=payload,
+            server_ts=server_ts
+        )
+
+        # pastikan response selalu dict
+        response = WSResultToMap(raw_response)
+
+        # cek kalau ada error message
+        if response.get("error"):
+            raise Exception(f"Coffee Franke error: {response['error']}")
+
+        # ambil result code (bisa 'result' atau 'code')
+        result_code = response.get("result") or response.get("code")
+
+        if result_code is None:
+            raise Exception(
+                f"Coffee Franke set gagal, response tidak valid: {response}")
+
+        # 0 = sukses, 10 = mesin offline (anggap wajar, tidak error)
+        if result_code not in (0, 10):
+            raise Exception(
+                f"Coffee Franke set failed, code: {result_code}, response: {response}")
+
+        return response

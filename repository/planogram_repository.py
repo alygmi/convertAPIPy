@@ -1,13 +1,21 @@
 import json
+import time
 from typing import Any, Dict
 from config.settings import settings
 from utils.planogram import build_config_list
+from utils.wsclient import WebSocketClient
+from utils.web_services import WSResult, WebService
 
 import requests
 import os
 import httpx
 
-from utils.web_services import WebService
+ws = WebSocketClient()
+
+headers = {
+    'Iotera-Internal-Api-Token': '1711f6e884b5d0c90cdf239553ba58b96b2315fb7132851b77cb3d426f826f04',
+    'Iotera-Application-Id': "1000000021"
+}
 
 
 class PlanogramRepository:
@@ -165,16 +173,119 @@ class PlanogramRepository:
     async def batch_config_repo(self, application_id: str, payload: dict):
         url = f"{settings.INTERNAL_PLATFORM_API_BASE_URL}/send/config/batch"
         headers = {
-            "Vending-Application-Id": application_id,
-            # Tambahkan ini
-            "Authorization": f"Bearer {settings.INTERNAL_PLATFORM_API_TOKEN}",
-            "Content-Type": "application/json"  # Pastikan content-type ada
+            "Iotera-Application-Id": application_id,
+            "Iotera-Internal-Api-Token": settings.INTERNAL_PLATFORM_API_TOKEN,
+            "Content-Type": "application/json"
         }
 
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
+            resp = await client.post(url, json=payload, headers=headers, timeout=180.0)
+
+            # Untuk semua response (200, 400, dll), return JSON-nya
+            # Biarkan business logic yang handle result codes
             return resp.json()
+
+    async def send_insert(self, application_id: str, body: dict) -> WSResult:
+        """
+        body di sini masih payload mentah dari client (punya latest_planogram, planogram, dll).
+        Repository yang menyesuaikan format supaya API internal bisa baca.
+        """
+
+        # ambil device_id dari payload
+        device_id = body.get("id", "")
+        email = body.get("email", "")
+        latest_planogram = body.get("latest_planogram", {})
+        new_planogram = body.get("planogram", {})
+
+        # timestamp server
+        server_ts = int(time.time() * 1000)
+
+        item_list = []
+
+        # compare old vs new stock
+        for key, old_product in latest_planogram.items():
+            # skip key yang mengandung "P"
+            print("DEBUG key:", key, "old_product:", old_product)
+
+            if "P" in key:
+                continue
+
+            new_product = new_planogram.get(key)
+            print("DEBUG new_product:", new_product)
+
+            if not isinstance(new_product, dict):
+                continue
+
+            old_stock = int(old_product.get("stock", 0))
+            new_stock = int(new_product.get("stock", 0))
+            print("DEBUG stocks:", old_stock, new_stock)
+
+            if old_stock != new_stock:
+                value = {
+                    "start": old_stock,
+                    "end": new_stock,
+                    "difference": new_stock - old_stock,
+                    "source": "planogram",
+                    "type": "update_stock_planogram",
+                    "extras": {
+                        "ts": server_ts,
+                        "user": email,
+                    },
+                }
+                item = {
+                    "sensor": key,
+                    "configtype": "data",
+                    "param": "stock_history",
+                    "value": value,
+                }
+                item_list.append(item)
+
+                print("item:", item)
+        # body final sesuai format API internal
+        final_body = {
+            "device_id": device_id,
+            "payload": item_list,
+        }
+
+        headers = {
+            "Iotera-Application-Id": application_id,
+            "Iotera-Internal-Api-Token": settings.IOTERA_INTERNAL_API_TOKEN,
+            "Content-Type": "application/json",
+        }
+
+        if settings.INTERNAL_PLATFORM_API_TOKEN:
+            headers["Authorization"] = f"Bearer {settings.INTERNAL_PLATFORM_API_TOKEN}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                print("=== DEBUG REQUEST ===")
+                print("URL:", settings.INTERNAL_PLATFORM_API_BASE_URL)
+                print("Headers:", headers)
+                print("Body:", final_body)
+
+                resp = await client.post(settings.INTERNAL_PLATFORM_API_BASE_URL, json=final_body, headers=headers)
+
+                try:
+                    resp_body = resp.json()
+                except Exception:
+                    resp_body = {"raw": resp.text}
+
+                print("=== DEBUG RESPONSE ===")
+                print("HTTP Status:", resp.status_code)
+                print("Response Body:", resp_body)
+
+                status_val = resp_body.get("status")
+
+                if status_val in (0, 10):
+                    return WSResult(code=resp.status_code, body=resp_body)
+                else:
+                    return WSResult(code=resp.status_code, body=resp_body)
+
+            except Exception as e:
+                return WSResult(code=500, body={"error": str(e)})
+
+    async def send_sensors(self, application_id: str, data: dict):
+        return await ws.send("Sensors", application_id, data)
 
     def insert(self, app_id, body):
         return self._post(f"{self.base_url}/data/insert", body, app_id)

@@ -2,7 +2,7 @@ from datetime import datetime
 import json
 import time
 from typing import Dict
-from fastapi import APIRouter, Depends, Header, Body, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Body, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from services.planogram_services import CoffeeService, PlanogramService
 from utils.helper import PayloadMap, WSResultToMap
@@ -461,3 +461,24 @@ async def coffee_franke_set(
         return bad_request_json(response)
 
     return ok_json(response)
+
+
+@router.get("/planogram/coffee-milano")
+async def coffee_milano_get(
+    request: Request,
+    id: str = Query(..., description="Device ID yang akan diambil datanya")
+):
+    # ambil header
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        raise HTTPException(status_code=400, detail="Application id not found")
+
+    # proses ke service
+    result = await service.get_planogram(application_id, id)
+
+    # handle error dari service
+    if "error" in result:
+        return bad_request_json(result["body"])
+
+    # sukses
+    return ok_json(result)

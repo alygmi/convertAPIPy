@@ -1,3 +1,4 @@
+import datetime
 from typing import Any, Dict, List, Tuple
 
 import httpx
@@ -302,23 +303,83 @@ class PlanogramService:
         ws_result = await repository.send_insert(application_id, body)
         return ws_result
 
+    async def get_planogram(self, application_id: str, device_id: str) -> Dict[str, Any]:
+        wsresult = await repository.get_sensors(application_id, device_id)
+        body_ws = wsresult["Body"]
+        result_code = int(body_ws.get("result", -1))
+
+        if result_code != 0:  # asumsi result.SUCCESS = 0
+            return {
+                "error": True,
+                "body": wsresult
+            }
+
+        sensors = body_ws.get("sensors", [])
+
+        id_map, name_map, price_map = {}, {}, {}
+        sorted_list: List[str] = []
+
+        for d in sensors:
+            if not isinstance(d, dict):
+                continue
+
+            key = d.get("key", "")
+            sensor = d.get("sensor", "")
+            latest_data = d.get("latest_data", {})
+
+            if ":config:id" in key:
+                value = latest_data.get("value", "")
+                id_map[sensor] = value
+                sorted_list.append(sensor)
+            elif ":config:price" in key:
+                value = latest_data.get("value", 0)
+                price_map[sensor] = value
+            elif ":config:name" in key:
+                value = latest_data.get("value", "")
+                name_map[sensor] = value
+
+        keys = ["SELECTION", "SKU", "NAME", "HARGA"]
+        table_data: List[Dict[str, Any]] = []
+
+        for key in sorted_list:
+            id_ = id_map.get(key, "")
+            name = name_map.get(key, "")
+            price = price_map.get(key, 0)
+
+            data_result = {
+                "SELECTION": {"value": key, "success": True, "status": ""},
+                "SKU": {"value": id_, "success": True, "status": ""},
+                "NAME": {"value": name, "success": True, "status": ""},
+                "HARGA": {"value": price, "success": True, "status": ""},
+            }
+            table_data.append(data_result)
+
+        formatted_time = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        response = {
+            "device_id": device_id,
+            "table_data": table_data,
+            "table_keys": keys,
+            "time": formatted_time,
+            "status_desc": "list_planogram_success",
+            "status": "success",
+            "status_code": 0,
+        }
+        return response
+
 
 class CoffeeService:
     def __init__(self):
         self.ws_client = WebSocketClient()
 
-    async def coffee_franke_set(self, application_id: str, payload: dict, server_ts: int):
+    async def coffee_franke_set(self, application_id: str, payload: dict[str, Any], server_ts: int):
         """
         Kirim planogram ke mesin Coffee Franke via websocket.
         Response dibungkus ke dict supaya aman dipakai .get()
         """
         # --- panggil websocket, ganti sesuai fungsi yg memang kamu pakai ---
-        raw_response = await send_ws(
-            application_id=application_id,
-            action="coffee.franke.set",
-            data=payload,
-            server_ts=server_ts
-        )
+        raw_response = WebSocketResult(
+            application_id, "coffee.franke.set", payload, server_ts)  # type: ignore
 
         # pastikan response selalu dict
         response = WSResultToMap(raw_response)

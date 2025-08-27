@@ -293,8 +293,21 @@ class PlanogramRepository:
     def sensors(self, app_id, body):
         return self._post(f"{self.base_url}/send/sensors", body, app_id)
 
-    def get_sensors(self, app_id, device_id):
-        return self._get(f"{self.base_url}/device/sensor/list/data/latest", {"device_id": device_id}, app_id)
+    async def get_sensors(self, app_id, device_id):
+        """
+        Panggil API internal sesuai base_url dan token
+        """
+        url = f"{self.base_url}/sensors"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Vending-Application-Id": app_id,
+        }
+        params = {"id": device_id}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
 
     def get_ice(self, app_id, device_id):
         return self._get(f"{self.base_url}/device/sensors/read/flatten", {"id": device_id}, app_id)

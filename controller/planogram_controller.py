@@ -1,19 +1,24 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import time
-from typing import Dict
+import pytz
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Header, Body, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from services.planogram_services import CoffeeService, PlanogramService
-from utils.helper import PayloadMap, WSResultToMap
-from utils.parser import get, rget
+from utils import helper
+from utils.helper import PayloadEncryptedMap, PayloadMap, RGet, WSResultToMap, parse_coffee_le_vending_configs, parse_coffee_le_vending_sensors
+from utils.parser import get, rget, safe_rget
 from utils.planogram import decode_base64_payload, build_config_list, get_payload_encrypted_map
 from utils.response import assess_error, ok_json, bad_request_json, br_failed
 from utils.validation import is_number
+from utils.object import IsBool, IsDict, IsList, IsNumber, IsString
 
 router = APIRouter()
 service = PlanogramService()
 coffee = CoffeeService()
+
+# set planogram
 
 
 @router.post("/planogram/combo-porto-set")
@@ -438,7 +443,7 @@ async def stock_history(
     return ok_json({"code": 1})
 
 
-@router.post("/planogram/coffee-franke-set")
+@router.post("/planogram/coffee-franke/set")
 async def coffee_franke_set(
     request: Request,
     application_id: str = Header(None, alias="Vending-Application-Id"),
@@ -463,7 +468,453 @@ async def coffee_franke_set(
     return ok_json(response)
 
 
-@router.get("/planogram/coffee-milano")
+@router.post("/coffeealegria/set")
+async def coffee_alegria_set(
+    request: Request,
+    vending_application_id: Optional[str] = Header(
+        None, alias="Vending-Application-Id")
+):
+    server_ts = int(time.time() * 1000)
+
+    # Headers check
+    if not vending_application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    # Payload body
+    payload, err = await PayloadEncryptedMap(request)
+    if err:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    errors: List[Exception] = []
+
+    device_id, errors, = rget(payload, "device_id", errors)
+    timeout, errors, = rget(payload, "timeout", errors)
+    wait_result = get(payload, "wait_result", True)
+
+    ids, errors = rget(payload, "ids", errors)
+    names, errors = rget(payload, "names", errors)
+    prices, errors = rget(payload, "prices", errors)
+    actives, errors = rget(payload, "actives", errors)
+    bypass, errors = rget(payload, "bypass", errors)
+
+    config_list: List[Dict[str, Any]] = []
+
+    # payment timeout
+    config_list.append({
+        "sensor": "payment",
+        "param": "timeout",
+        "value": timeout
+    })
+
+    # ids
+    for column, val in (ids or {}).items():
+        if not IsString(val):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "id",
+            "value": val
+        })
+
+    # names
+    for column, val in (names or {}).items():
+        if not IsString(val):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "name",
+            "value": val
+        })
+
+    # prices
+    for column, val in (prices or {}).items():
+        if not IsNumber(val):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "price",
+            "value": val
+        })
+
+    # actives
+    for column, val in (actives or {}).items():
+        if not IsBool(val):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "active",
+            "value": val
+        })
+
+    # bypass
+    for column, val in (bypass or {}).items():
+        if not IsBool(val):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "bypass",
+            "value": val
+        })
+
+    # group per sensor
+    config_map: Dict[str, List[Dict[str, Any]]] = {}
+    for config in config_list:
+        sensor = config["sensor"]
+        if sensor not in config_map:
+            config_map[sensor] = []
+        config_map[sensor].append({
+            "sensor": config["sensor"],
+            "param": config["param"],
+            "value": config["value"]
+        })
+
+    print("ConfigMap per sensor:", config_map)
+
+    latest_response: Dict[str, Any] = {}
+
+    for sensor, configs in config_map.items():
+        payload_sensor = []
+        for cfg in configs:
+            payload_sensor.append({
+                "sensor": cfg["sensor"],
+                "param": cfg["param"],
+                "value": cfg["value"]
+            })
+
+        print(sensor)
+        print(payload_sensor)
+
+        wsresult = await service.batch_config(
+            app_id=vending_application_id,
+            device_id=str(device_id),
+            config_list=configs,
+            wait_result=bool(wait_result)
+        )
+
+        body = wsresult["Body"]
+        result_code = int(body["result"])
+        response = WSResultToMap(wsresult)
+        latest_response = response
+        SUCCESS = 0
+
+        if result_code != SUCCESS:
+            print(f"Failed to send config for sensor {sensor}")
+            return bad_request_json(response)
+
+        print(f"Successfully sent config for sensor {sensor}")
+
+    return ok_json(latest_response)
+
+
+@router.post("/coffee-milano/set")
+async def coffee_milano_set(
+    request: Request,
+    vending_application_id: str = Header(None, alias="Vending-Application-Id"),
+):
+    # Server time
+    server_ts = int(time.time() * 1000)
+
+    # Headers
+    if not vending_application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    # Payload body
+    payload, err = await PayloadEncryptedMap(request)
+    if err:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    errors = []
+
+    # Extract fields
+    device_id, errors = rget(payload, "device_id", errors)
+    wait_result = get(payload, "wait_result", True)
+
+    ids, errors = rget(payload, "ids", errors)
+    names, errors = rget(payload, "names", errors)
+    prices, errors = rget(payload, "prices", errors)
+
+    config_list = []
+
+    # IDs
+    for column, val in (ids or {}).items():
+        if not isinstance(val, str):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "id",
+            "value": val,
+        })
+
+    # Names
+    for column, val in (names or {}).items():
+        if not isinstance(val, str):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "name",
+            "value": val,
+        })
+
+    # Prices
+    for column, val in (prices or {}).items():
+        if not isinstance(val, (int, float)):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "param": "price",
+            "value": val,
+        })
+
+    # Call service
+    wsresult = await service.batch_config(
+        app_id=vending_application_id,
+        device_id=str(device_id),
+        config_list=config_list,
+        wait_result=bool(wait_result)
+    )
+
+    body = wsresult.get("body", {})
+    result_code = int(body.get("result", -999))
+    response = WSResultToMap(wsresult)
+    SUCCESS = 0
+
+    if result_code == SUCCESS:
+        return ok_json(response)
+
+    return bad_request_json(response)
+
+
+@router.post("/planogram/coffee-levanding/set")
+async def coffee_levanding_set(self, request: Request):
+    server_ts = int(datetime.now().timestamp() * 1000)
+    now = datetime.fromtimestamp(server_ts / 1000)
+
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    payload, err = await PayloadEncryptedMap(request)
+    if err:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    errors = []
+    device_id, errors = rget(payload, "id", errors)
+    wait_result = get(payload, "wait_result", True)
+    configs, errors = rget(payload, "configs", errors)
+
+    err = assess_error(errors)
+    if err:
+        return br_failed(server_ts, -3, "Invalid payload")
+
+    if configs is None:
+        configs = []
+
+    sensors, err = parse_coffee_le_vending_configs(configs)
+    if err:
+        return br_failed(server_ts, -4, "Error parsing")
+
+    wsresult = await self.sendservice.Sensors(application_id, {
+        "device_id": device_id,
+        "sensors": sensors,
+        "wait_result": wait_result,
+        "keep": ["payment", "sampling", "stock", "user", "canceltrx", "confirmation", "ir_sensor"],
+    })
+
+    body_ws = wsresult.Body
+    result_code = int(body_ws.get("result", -99))
+
+    if result_code != helper.Result.SUCCESS:
+        return bad_request_json(WSResultToMap(wsresult))
+
+    tz = pytz.timezone("Asia/Jakarta")
+    return ok_json({
+        "time": now.astimezone(tz).strftime("%y-%m-%d %H:%M:%S"),
+        "status_desc": "update_planogram_success",
+        "status": "success",
+        "status_code": 0,
+    })
+
+
+# get planogram
+@router.get("/planogram/sensors/get")
+async def sensors_get(self, request: Request, device_id: str = Query(...)):
+    server_ts = int(datetime.now().timestamp() * 1000)
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    wsresult = await self.getservice.GetSensors(application_id, device_id)
+    body_ws = wsresult.Body
+    result_code = int(body_ws.get("result", -99))
+    if result_code != helper.Result.SUCCESS:
+        return bad_request_json(WSResultToMap(wsresult))
+    return ok_json(wsresult.Body)
+
+
+@router.get("/planogram/coffee-levanding/get")
+async def CoffeeLevendingGet(self, request: Request, device_id: str = Query(...)):
+    server_ts = int(datetime.now().timestamp() * 1000)
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    errors = []
+    wsresult = await self.getservice.GetSensors(application_id, device_id)
+    body_ws = wsresult.Body
+    result_code = int(body_ws.get("result", -99))
+    if result_code != helper.Result.SUCCESS:
+        return bad_request_json(helper.WSResultToMap(wsresult))
+
+    sensors, errors = rget(body_ws, "sensors", errors)
+    id_map, price_map, order_map, active_map, ingredient_map, recipe_map, stock_map, ice_map = {
+    }, {}, {}, {}, {}, {}, {}, {}
+    sorted_list = []
+
+    for d in (sensors or []):
+        if not isinstance(d, dict):
+            continue
+        key, errors = rget(d, "key", errors)
+        sensor, errors = rget(d, "sensor", errors)
+        latest_data, errors = rget(d, "latest_data", errors)
+        if isinstance(key, str) and ":config:id" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            id_map[sensor] = value
+            sorted_list.append(sensor)
+        elif isinstance(key, str) and ":config:price" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            price_map[sensor] = value
+        elif isinstance(key, str) and ":config:order" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            order_map[sensor] = value
+        elif isinstance(key, str) and ":config:active" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            active_map[sensor] = value
+        elif isinstance(key, str) and ":config:ingredient" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            ingredient_map[sensor] = value
+        elif isinstance(key, str) and ":cdata:recipe" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            recipe_map[sensor] = value
+        elif isinstance(key, str) and ":cdata:stock" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            stock_map[sensor] = value
+
+    # Get ice sensors
+    result_ice = await self.getservice.GetIce(application_id, device_id)
+    if result_ice.Code != helper.Result.HTTP_OK:
+        return bad_request_json(helper.WSResultToMap(result_ice))
+
+    sensors_data, errors = rget(
+        result_ice.Body, "sensors", errors)
+    sensors_ice, errors = safe_rget(sensors_data, "detail", errors)
+    for sensor, key in (sensors_ice or {}).items():
+        if ":ice" in sensor:
+            sensor_id = sensor.split(":")[0]
+            ice_map[sensor_id] = key
+
+    keys = ["SELECTION", "SKU", "HARGA",
+            "ORDER", "ACTIVE", "INGREDIENT", "ICE"]
+    table_data = []
+    for key in sorted_list:
+        id_, errors = rget(id_map, key, errors)
+        price, errors = rget(price_map, key, errors)
+        order, errors = rget(order_map, key, errors)
+        active, errors = rget(active_map, key, errors)
+        ingredient, errors = rget(ingredient_map, key, errors)
+        ice, errors = rget(ice_map, key, errors)
+        recipe, errors = rget(recipe_map, key, errors)
+        stock, errors = rget(stock_map, key, errors)
+
+        table_data.append({
+            "SELECTION": {"value": key, "success": True, "status": ""},
+            "SKU": {"value": id_, "success": True, "status": ""},
+            "HARGA": {"value": price or 0, "success": True, "status": ""},
+            "ORDER": {"value": order or 0, "success": True, "status": ""},
+            "ACTIVE": {"value": active or False, "success": True, "status": ""},
+            "INGREDIENT": {"value": ingredient or {}, "success": True, "status": ""},
+            "ICE": {"value": ice or {}, "success": True, "status": ""},
+            "STOCK": {"value": stock or {}, "success": True, "status": ""},
+            "RECIPE": {"value": recipe or {}, "success": True, "status": ""},
+        })
+
+    formatted_time = datetime.now(timezone.utc).isoformat()
+    response = {
+        "device_id": device_id,
+        "table_data": table_data,
+        "table_keys": keys,
+        "time": formatted_time,
+        "status_desc": "list_planogram_success",
+        "status": "success",
+        "status_code": 0,
+        "stock_map": stock_map,
+        "recipe_map": recipe_map,
+    }
+    return ok_json(response)
+
+
+@router.get("/planogram/coffee-franke/get")
+async def CoffeeFrankeGet(self, request: Request, device_id: str = Query(...)):
+    server_ts = int(datetime.now().timestamp() * 1000)
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    errors = []
+    wsresult = await self.getservice.GetSensors(application_id, device_id)
+    body_ws = wsresult.Body
+    result_code = int(body_ws.get("result", -99))
+    if result_code != helper.Result.SUCCESS:
+        return bad_request_json(WSResultToMap(wsresult))
+
+    sensors, errors = rget(body_ws, "sensors", errors)
+    id_map, name_map, price_map = {}, {}, {}
+    sorted_list = []
+
+    for d in (sensors or []):
+        if not isinstance(d, dict):
+            continue
+        key, errors = rget(d, "key", errors)
+        sensor, errors = rget(d, "sensor", errors)
+        latest_data, errors = rget(d, "latest_data", errors)
+        if isinstance(key, str) and ":config:id" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            id_map[sensor] = value
+            sorted_list.append(sensor)
+        elif isinstance(key, str) and ":config:price" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            price_map[sensor] = value
+        elif isinstance(key, str) and ":config:name" in key:
+            value, errors = safe_rget(latest_data, "value", errors)
+            name_map[sensor] = value
+
+    keys = ["SELECTION", "SKU", "NAME", "HARGA"]
+    table_data = []
+    for key in sorted_list:
+        id_, errors = rget(id_map, key, errors)
+        name, errors = rget(name_map, key, errors)
+        price, errors = rget(price_map, key, errors)
+
+        table_data.append({
+            "SELECTION": {"value": key, "success": True, "status": ""},
+            "SKU": {"value": id_, "success": True, "status": ""},
+            "NAME": {"value": name or "", "success": True, "status": ""},
+            "HARGA": {"value": price or 0, "success": True, "status": ""},
+        })
+
+    formatted_time = datetime.now(timezone.utc).isoformat()
+    response = {
+        "device_id": device_id,
+        "table_data": table_data,
+        "table_keys": keys,
+        "time": formatted_time,
+        "status_desc": "list_planogram_success",
+        "status": "success",
+        "status_code": 0,
+    }
+    return ok_json(response)
+
+
+@router.get("/planogram/coffee-milano/get")
 async def coffee_milano_get(
     request: Request,
     id: str = Query(..., description="Device ID yang akan diambil datanya")
@@ -482,3 +933,64 @@ async def coffee_milano_get(
 
     # sukses
     return ok_json(result)
+
+# todo
+
+
+@router.get("/stock")
+async def stock_get(request: Request):
+    server_ts = int(datetime.now().timestamp() * 1000)
+
+    # Header
+    application_id = request.headers.get("Vending-Application-Id")
+    if not application_id:
+        raise HTTPException(status_code=400, detail="Application id not found")
+
+    # Call service GetStock
+    wsresult = await service.get_stock(application_id)
+    body_ws = wsresult["Body"]
+    result_code = int(body_ws.get("result", -1))
+
+    if result_code != helper.Result.SUCCESS:
+        return bad_request_json(WSResultToMap(wsresult))
+
+    # Filter sensors
+    sensors, errors, _ = rget(body_ws, "sensors")
+    list_sensor = []
+    for d in sensors or []:
+        if not isinstance(d, dict):
+            continue
+        latest_configtype, _, _ = rget(d, "configtype")
+        latest_param, _, _ = rget(d, "param")
+
+        if latest_configtype == "data" and latest_param == "stock":
+            sensor, _, _ = rget(d, "sensor")
+            device_id, _, _ = rget(d, "device_id")
+            data_valid = {
+                "sensor": sensor,
+                "device_id": device_id,
+            }
+            list_sensor.append(data_valid)
+
+    # Call service GetStockLatest
+    wsresult_latest = await service.get_stock_latest(application_id)
+    if wsresult_latest["Code"] != helper.Result.HTTP_OK:
+        return bad_request_json(WSResultToMap(wsresult_latest))
+
+    ws_latest_body = wsresult_latest["Body"]
+    latest_data, _, _ = rget(ws_latest_body, "sensors")
+    data_stock = []
+    for d in latest_data or []:
+        if not isinstance(d, dict):
+            continue
+        sensor, _, _ = rget(d, "sensor")
+        device_id, _, _ = rget(d, "device_id")
+
+        data_check = {
+            "sensor": sensor,
+            "device_id": device_id,
+        }
+        if service.contains_map(list_sensor, data_check):
+            data_stock.append(d)
+
+    return ok_json(data_stock)

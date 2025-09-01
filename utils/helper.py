@@ -117,6 +117,118 @@ def parse_coffee_sensors(configs: list):
 # Dummy result codes
 
 
+def parse_coffee_le_vending_sensors(configs: List[Any]) -> Tuple[Dict[str, Any], Optional[Exception]]:
+    if len(configs) < 2:
+        return {}, ValueError("error -1: configs too short")
+
+    header_array = configs[0]
+    if not isinstance(header_array, list):
+        return {}, ValueError("error -2: header is not a list")
+
+    # Validasi header
+    expected_headers = [
+        "selection", "sku", "price", "order", "active",
+        "hot", "ice", "ingredient", "name", "image"
+    ]
+    for idx, expected in enumerate(expected_headers):
+        try:
+            val = str(header_array[idx]).strip()
+        except Exception:
+            return {}, ValueError(f"error -3: header index {idx} missing")
+        if val != expected:
+            return {}, ValueError(f"error -3: header {expected} not found")
+
+    result: Dict[str, Any] = {}
+
+    # Loop isi configs
+    for row in configs[1:]:  # skip header
+        if not isinstance(row, list) or len(row) < 10:
+            continue
+
+        selection_data = str(row[0]).strip()
+        if not selection_data or selection_data == "selection":
+            continue
+
+        sku_data = str(row[1]).strip()
+        if not sku_data:
+            continue
+
+        name_data = str(row[8]).strip()
+        if not name_data:
+            continue
+
+        # price
+        price_data: Union[int, float]
+        try:
+            price_data = int(row[2]) if isinstance(row[2], str) else row[2]
+            if not isinstance(price_data, (int, float)):
+                continue
+        except Exception:
+            continue
+
+        # order
+        order_data: Union[int, float]
+        try:
+            order_data = int(row[3]) if isinstance(row[3], str) else row[3]
+            if not isinstance(order_data, (int, float)):
+                continue
+        except Exception:
+            continue
+
+        # active & hot
+        try:
+            active_data = bool(row[4])
+            hot_data = bool(row[5])
+        except Exception:
+            continue
+
+        # ingredient
+        ingredient_data = row[7] if isinstance(row[7], dict) else None
+        if not ingredient_data:
+            continue
+
+        # ice (boleh kosong, fallback default)
+        ice_data = row[6] if isinstance(row[6], dict) else {
+            "no": 0, "less": 100, "medium": 140, "many": 170}
+
+        # sugar → hardcoded default
+        sugar_data = {"no": 0, "less": 10, "medium": 20, "many": 30}
+
+        # image
+        image_data = str(row[9]).strip()
+
+        # Build data
+        data_result = {
+            "config": {
+                "id": "text",
+                "name": "text",
+                "price": "number",
+                "active": "bool",
+                "image": "text",
+                "ingredient": "uobject",
+                "order": "number",
+                "hot": "bool",
+                "ice": "uobject",
+                "sugar": "uobject",
+            },
+            "config_init": {
+                "id": sku_data,
+                "name": name_data,
+                "price": price_data,
+                "active": active_data,
+                "image": image_data,
+                "ingredient": ingredient_data,
+                "order": order_data,
+                "hot": hot_data,
+                "ice": ice_data,
+                "sugar": sugar_data,
+            },
+        }
+        result[selection_data] = data_result
+
+    return result, None
+
+
 class Result:
     SUCCESS = 0
     HTTP_OK = 200

@@ -81,11 +81,11 @@ class PlanogramService:
     def get_ice(self, app_id: str, device_id: str):
         return self.repo.get_ice(app_id, device_id)
 
-    def get_stock(self, app_id: str):
-        return self.repo.get_stock(app_id)
+    async def get_stock(self, application_id: str):
+        return await repository.get_stock(application_id)
 
-    def get_stock_latest(self, app_id: str):
-        return self.repo.get_stock_latest(app_id)
+    async def get_stock_latest(self, application_id: str):
+        return await repository.get_stock_latest(application_id)
 
     def get_latest_rfid(self, app_id: str, device_id: str):
         return self.repo.get_latest_rfid(app_id, device_id)

@@ -468,7 +468,7 @@ async def coffee_franke_set(
     return ok_json(response)
 
 
-@router.post("/coffeealegria/set")
+@router.post("/planogram/coffeealegria/set")
 async def coffee_alegria_set(
     request: Request,
     vending_application_id: Optional[str] = Header(
@@ -606,7 +606,7 @@ async def coffee_alegria_set(
     return ok_json(latest_response)
 
 
-@router.post("/coffee-milano/set")
+@router.post("/planogram/coffee-milano/set")
 async def coffee_milano_set(
     request: Request,
     vending_application_id: str = Header(None, alias="Vending-Application-Id"),
@@ -937,7 +937,7 @@ async def coffee_milano_get(
 # todo
 
 
-@router.get("/stock")
+@router.get("/planogram/stock")
 async def stock_get(request: Request):
     server_ts = int(datetime.now().timestamp() * 1000)
 
@@ -955,17 +955,17 @@ async def stock_get(request: Request):
         return bad_request_json(WSResultToMap(wsresult))
 
     # Filter sensors
-    sensors, errors, _ = rget(body_ws, "sensors")
+    sensors, errors = rget(body_ws, "sensors", errors)
     list_sensor = []
     for d in sensors or []:
         if not isinstance(d, dict):
             continue
-        latest_configtype, _, _ = rget(d, "configtype")
-        latest_param, _, _ = rget(d, "param")
+        latest_configtype, errors = rget(d, "configtype", errors)
+        latest_param, errors = rget(d, "param", errors)
 
         if latest_configtype == "data" and latest_param == "stock":
-            sensor, _, _ = rget(d, "sensor")
-            device_id, _, _ = rget(d, "device_id")
+            sensor, errors = rget(d, "sensor", errors)
+            device_id, errors = rget(d, "device_id", errors)
             data_valid = {
                 "sensor": sensor,
                 "device_id": device_id,
@@ -978,19 +978,160 @@ async def stock_get(request: Request):
         return bad_request_json(WSResultToMap(wsresult_latest))
 
     ws_latest_body = wsresult_latest["Body"]
-    latest_data, _, _ = rget(ws_latest_body, "sensors")
+    latest_data, errors = rget(ws_latest_body, "sensors", errors)
     data_stock = []
     for d in latest_data or []:
         if not isinstance(d, dict):
             continue
-        sensor, _, _ = rget(d, "sensor")
-        device_id, _, _ = rget(d, "device_id")
+        sensor, errors = rget(d, "sensor", errors)
+        device_id, errors = rget(d, "device_id", errors)
 
         data_check = {
             "sensor": sensor,
             "device_id": device_id,
         }
-        if service.contains_map(list_sensor, data_check):
+        if helper.contains_map(list_sensor, data_check):
             data_stock.append(d)
 
     return ok_json(data_stock)
+
+
+@router.post("/planogram/android")
+async def android_planogram(
+    self,
+    request: Request,
+    vending_application_id: str = Header(None, alias="Vending-Application-Id")
+):
+    server_ts = int(datetime.now().timestamp() * 1000)
+
+    # Header check
+    if not vending_application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    # Payload
+    payload, err = await PayloadMap(request)
+    if err:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    errors = []
+    device_id, errors = rget(payload, "device_id", errors)
+    wait_result = get(payload, "wait_result", True)
+    sensors, errors = rget(payload, "sensors", errors)
+
+    config_list = []
+    for sensor_id, sensor_data in (sensors or {}).items():
+        if not isinstance(sensor_data, dict):
+            continue
+        errors = []
+
+        id_p, errors = rget(sensor_data, "id", errors)
+        config_list.append({"sensor": sensor_id, "param": "id", "value": id_p})
+
+        name, errors = rget(sensor_data, "name", errors)
+        config_list.append(
+            {"sensor": sensor_id, "param": "name", "value": name})
+
+        price, errors = rget(sensor_data, "price", errors)
+        if price == 0:
+            price = 999999999
+        config_list.append(
+            {"sensor": sensor_id, "param": "price", "value": price})
+
+        active, errors = rget(sensor_data, "active", errors)
+        config_list.append(
+            {"sensor": sensor_id, "param": "active", "value": active})
+
+        selection, errors = rget(sensor_data, "active", errors)
+        str_selection = ",".join(map(str, selection)) if selection else ""
+        config_list.append(
+            {"sensor": sensor_id, "param": "column", "value": str_selection})
+
+        image, errors = rget(sensor_data, "image", errors)
+        config_list.append(
+            {"sensor": sensor_id, "param": "image", "value": image})
+
+        order, errors = rget(sensor_data, "order", errors)
+        if order == 0:
+            order = 999
+        config_list.append(
+            {"sensor": sensor_id, "param": "order", "value": order})
+
+        description, errors = rget(sensor_data, "description", errors)
+        config_list.append(
+            {"sensor": sensor_id, "param": "description", "value": description})
+
+        group, errors = rget(sensor_data, "group", errors)
+        config_list.append(
+            {"sensor": sensor_id, "param": "group", "value": group})
+
+    wsresult = await service.batch_config(
+        app_id=vending_application_id,
+        device_id=str(device_id),
+        config_list=config_list,
+        wait_result=bool(wait_result)
+    )
+
+    body = wsresult.get("Body", {})
+    result_code = int(body.get("result", -99))
+    response = WSResultToMap(wsresult)
+
+    if result_code == helper.Result.SUCCESS:
+        return ok_json(response)
+    return bad_request_json(response)
+
+
+@router.post("/planogram/stock-le-vending/set")
+async def stock_levending_set(
+    self,
+    request: Request,
+    vending_application_id: str = Header(None, alias="Vending-Application-Id")
+):
+    server_ts = int(datetime.now().timestamp() * 1000)
+
+    if not vending_application_id:
+        return br_failed(server_ts, -1, "Application id not found")
+
+    payload, err = await PayloadEncryptedMap(request)
+    if err:
+        return br_failed(server_ts, -2, "Invalid payload")
+
+    errors = []
+    device_id, errors = rget(payload, "device_id", errors)
+    wait_result = get(payload, "wait_result", True)
+    recipes, errors = rget(payload, "recipes", errors)
+    stocks, errors = rget(payload, "stocks", errors)
+
+    config_list = []
+
+    for column, val in (stocks or {}).items():
+        if not IsNumber(val):
+            return br_failed(server_ts, -3, "Invalid payload")
+        config_list.append({
+            "sensor": column,
+            "configtype": "cdata",
+            "param": "stock",
+            "value": val,
+        })
+
+    for column, val in (recipes or {}).items():
+        config_list.append({
+            "sensor": column,
+            "configtype": "cdata",
+            "param": "recipe",
+            "value": val,
+        })
+
+    wsresult = await service.batch_config(
+        app_id=vending_application_id,
+        device_id=str(device_id),
+        config_list=config_list,
+        wait_result=bool(wait_result)
+    )
+
+    body = wsresult.get("Body", {})
+    result_code = int(body.get("result", -99))
+    response = WSResultToMap(wsresult)
+
+    if result_code == helper.Result.SUCCESS:
+        return ok_json(response)
+    return bad_request_json(response)

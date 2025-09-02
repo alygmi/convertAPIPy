@@ -117,7 +117,7 @@ def parse_coffee_sensors(configs: list):
 # Dummy result codes
 
 
-def parse_coffee_le_vending_sensors(configs: List[Any]) -> Tuple[Dict[str, Any], Optional[Exception]]:
+def parse_coffee_le_vending_configs(configs: List[Any]) -> Tuple[Dict[str, Any], Optional[Exception]]:
     if len(configs) < 2:
         return {}, ValueError("error -1: configs too short")
 
@@ -227,6 +227,26 @@ def parse_coffee_le_vending_sensors(configs: List[Any]) -> Tuple[Dict[str, Any],
         result[selection_data] = data_result
 
     return result, None
+
+
+def maps_equal(map1: dict, map2: dict) -> bool:
+    """Bandingkan dua dict secara key dan value persis seperti versi Go"""
+    if len(map1) != len(map2):
+        return False
+    for key, val1 in map1.items():
+        if key not in map2:
+            return False
+        val2 = map2[key]
+        if val1 != val2:
+            return False
+    return True
+
+
+def contains_map(slice_: list[dict], value: dict) -> bool:
+    for item in slice_:
+        if maps_equal(item, value):
+            return True
+    return False
 
 
 class Result:

@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 import json
 import time
-import pytz
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Header, Body, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from services.planogram_services import CoffeeService, PlanogramService
 from utils import helper
-from utils.helper import PayloadEncryptedMap, PayloadMap, RGet, WSResultToMap, parse_coffee_le_vending_configs, parse_coffee_le_vending_sensors
+from utils.helper import PayloadEncryptedMap, PayloadMap, RGet, WSResultToMap, parse_coffee_le_vending_configs
 from utils.parser import get, rget, safe_rget
 from utils.planogram import decode_base64_payload, build_config_list, get_payload_encrypted_map
 from utils.response import assess_error, ok_json, bad_request_json, br_failed
@@ -119,32 +119,6 @@ def planogram_set(
     return result["body"]
 
 
-@router.get("/planogram/get")
-def planogram_get(
-    device_id: str,
-    vending_application_id: str = Header(...)
-):
-    result = service.get_sensors(device_id, vending_application_id)
-
-    if result["status_code"] != 200:
-        raise HTTPException(status_code=500, detail="Failed to get planogram")
-
-    return result["body"]
-
-
-@router.get("/planogram/get-ice")
-def planogram_get_ice(
-    device_id: str,
-    vending_application_id: str = Header(...)
-):
-    result = service.get_ice(device_id, vending_application_id)
-
-    if result["status_code"] != 200:
-        raise HTTPException(status_code=500, detail="Failed to get ice")
-
-    return result["body"]
-
-
 @router.post("/planogram/retailset")
 async def retail_set(
     request: Request,
@@ -217,7 +191,7 @@ async def playstation_set(
         )
 
 
-@router.post("/api/water-dispenser/set")
+@router.post("/planogram/water-dispenser/set")
 async def water_dispenser_set(
     request: Request,
     vending_application_id: str = Header(..., alias="Vending-Application-Id")
@@ -684,8 +658,8 @@ async def coffee_milano_set(
     return bad_request_json(response)
 
 
-@router.post("/planogram/coffee-levanding/set")
-async def coffee_levanding_set(self, request: Request):
+@router.post("/planogram/coffee-le-vending/set")
+async def coffee_le_vending_set(self, request: Request):
     server_ts = int(datetime.now().timestamp() * 1000)
     now = datetime.fromtimestamp(server_ts / 1000)
 
@@ -726,9 +700,9 @@ async def coffee_levanding_set(self, request: Request):
     if result_code != helper.Result.SUCCESS:
         return bad_request_json(WSResultToMap(wsresult))
 
-    tz = pytz.timezone("Asia/Jakarta")
+    tz = datetime.now(ZoneInfo("Asia/Jakarta"))
     return ok_json({
-        "time": now.astimezone(tz).strftime("%y-%m-%d %H:%M:%S"),
+        "time": now.strftime("%y-%m-%d %H:%M:%S"),
         "status_desc": "update_planogram_success",
         "status": "success",
         "status_code": 0,
@@ -751,7 +725,7 @@ async def sensors_get(self, request: Request, device_id: str = Query(...)):
     return ok_json(wsresult.Body)
 
 
-@router.get("/planogram/coffee-levanding/get")
+@router.get("/planogram/coffee-le-vnding/get")
 async def CoffeeLevendingGet(self, request: Request, device_id: str = Query(...)):
     server_ts = int(datetime.now().timestamp() * 1000)
     application_id = request.headers.get("Vending-Application-Id")
@@ -912,6 +886,19 @@ async def CoffeeFrankeGet(self, request: Request, device_id: str = Query(...)):
         "status_code": 0,
     }
     return ok_json(response)
+
+
+@router.get("/planogram/get-ice")
+def planogram_get_ice(
+    device_id: str,
+    vending_application_id: str = Header(...)
+):
+    result = service.get_ice(device_id, vending_application_id)
+
+    if result["status_code"] != 200:
+        raise HTTPException(status_code=500, detail="Failed to get ice")
+
+    return result["body"]
 
 
 @router.get("/planogram/coffee-milano/get")
